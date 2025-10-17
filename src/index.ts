@@ -102,7 +102,6 @@ const mapErrors = <Data = any, Variables extends AnyVariables = AnyVariables>(
         })
       );
     }
-    Effect.log("done");
     return result.data;
   });
 };
@@ -144,9 +143,34 @@ export const makeQueryEffect = <
     const result = yield* internalQuery;
 
     return result;
-  }).pipe(Effect.flatMap(mapErrors));
+  }).pipe(
+    Effect.flatMap(mapErrors),
+    Effect.tap(() => Effect.log("Query Completed"))
+  );
 };
 
+/**
+ * Creates an Effect that executes a GraphQL mutation using the provided urql client.
+ *
+ * @param client - The urql Client instance
+ * @param mutation - The TypedDocumentNode representing the GraphQL mutation
+ * @param variables - Optional variables for the mutation
+ * @returns An Effect that yields the mutation result data or fails with a tagged error
+ *
+ * @example
+ * ```ts
+ * const client = new Client({ url: 'https://api.example.com/graphql' });
+ * const mutation = gql`mutation { createUser(name: "John") { id name } }`;
+ *
+ * const effect = makeMutationEffect(client, mutation);
+ * const result = await Effect.runPromise(effect);
+ * ```
+ *
+ * Possible errors:
+ * - NetworkError: Network-level failures (connection, timeout, etc.)
+ * - GraphQLError: GraphQL errors returned by the server
+ * - QueryError: Other mutation-related errors
+ */
 export const makeMutationEffect = <
   Data = any,
   Variables extends AnyVariables = AnyVariables
@@ -164,6 +188,6 @@ export const makeMutationEffect = <
     return result;
   }).pipe(
     Effect.flatMap(mapErrors),
-    Effect.tap(() => Effect.log("done"))
+    Effect.tap(() => Effect.log("Mutation Completed"))
   );
 };
