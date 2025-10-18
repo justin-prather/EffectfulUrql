@@ -1,10 +1,9 @@
-import {
+import type {
   AnyVariables,
-  Client,
-  CombinedError,
   OperationResult,
   TypedDocumentNode,
 } from "@urql/core";
+import { Client, CombinedError } from "@urql/core";
 import { Data, Effect } from "effect";
 
 /**
@@ -143,10 +142,7 @@ export const makeQueryEffect = <
     const result = yield* internalQuery;
 
     return result;
-  }).pipe(
-    Effect.flatMap(mapErrors),
-    Effect.tap(() => Effect.log("Query Completed"))
-  );
+  }).pipe(Effect.flatMap(mapErrors));
 };
 
 /**
@@ -186,8 +182,5 @@ export const makeMutationEffect = <
     const result = yield* internalMutation;
 
     return result;
-  }).pipe(
-    Effect.flatMap(mapErrors),
-    Effect.tap(() => Effect.log("Mutation Completed"))
-  );
+  }).pipe(Effect.flatMap(mapErrors));
 };
