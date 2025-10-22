@@ -4,7 +4,7 @@ import type {
   TypedDocumentNode,
 } from "@urql/core";
 import { Client, CombinedError } from "@urql/core";
-import { Data, Effect } from "effect";
+import { Data, Effect, Stream } from "effect";
 
 /**
  * Represents a network-level error that occurred during a GraphQL request.
@@ -101,7 +101,7 @@ const mapErrors = <Data = any, Variables extends AnyVariables = AnyVariables>(
         })
       );
     }
-    return result.data;
+    return result;
   });
 };
 
@@ -142,7 +142,69 @@ export const makeQueryEffect = <
     const result = yield* internalQuery;
 
     return result;
-  }).pipe(Effect.flatMap(mapErrors));
+  }).pipe(
+    Effect.flatMap(mapErrors),
+    Effect.map((result) => result.data as NonNullable<typeof result.data>)
+  );
+};
+
+/**
+ * Creates a Stream that emits GraphQL query results reactively.
+ * This will emit new values whenever the urql cache updates for this query.
+ *
+ * @param client - The urql Client instance
+ * @param query - The TypedDocumentNode representing the GraphQL query
+ * @param variables - Optional variables for the query
+ * @returns A Stream that emits query result data whenever the cache updates
+ *
+ * @example
+ * ```ts
+ * const client = new Client({ url: 'https://api.example.com/graphql' });
+ * const query = gql`query { user { id name } }`;
+ *
+ * const stream = makeReactiveQueryEffect(client, query);
+ *
+ * // Process each update
+ * await stream.pipe(
+ *   Stream.runForEach((data) => Effect.sync(() => console.log(data)))
+ * ).pipe(Effect.runPromise);
+ * ```
+ *
+ * Possible errors:
+ * - NetworkError: Network-level failures (connection, timeout, etc.)
+ * - GraphQLError: GraphQL errors returned by the server
+ * - QueryError: Other query-related errors
+ */
+export const makeReactiveQueryEffect = <
+  Data = any,
+  Variables extends AnyVariables = AnyVariables
+>(
+  client: Client,
+  query: TypedDocumentNode<Data, Variables>,
+  variables?: Variables
+) => {
+  return Stream.async<
+    OperationResult<Data, Variables>,
+    NetworkError | GraphQLError | QueryError
+  >((emit) => {
+    const internalQuery = client.query(query, variables as Variables);
+
+    const subscription = internalQuery.subscribe((result) => {
+      mapErrors(result).pipe(
+        Effect.match({
+          onFailure: (error) => emit.fail(error),
+          onSuccess: (data) => emit.single(data),
+        }),
+        Effect.runPromise
+      );
+    });
+
+    // Return cleanup function that will be called when stream ends
+    return Effect.sync(() => {
+      console.log("unsubscribing from query");
+      subscription.unsubscribe();
+    });
+  });
 };
 
 /**

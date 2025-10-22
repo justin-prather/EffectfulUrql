@@ -4,11 +4,12 @@ import {
   makeQueryEffect,
   NetworkError,
   GraphQLError,
+  makeReactiveQueryEffect,
   // QueryError,
   // makeMutationEffect,
 } from "./index.ts";
 import { cacheExchange, Client, fetchExchange, gql } from "@urql/core";
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 import {
   BadGraphQlQueryQuery,
   GetPokemonQuery,
@@ -39,6 +40,35 @@ describe("EffectfulUrql", () => {
         Effect.sync(() => {
           expect(result).toBeDefined();
           expect(result.pokemon?.name).toBe("Pikachu");
+        })
+      )
+    );
+  });
+
+  it.effect("should make a reactive query effect and return data", () => {
+    const query = gql`
+      query GetPokemon($name: String!) {
+        pokemon(name: $name) {
+          name
+          number
+          image
+          classification
+          types
+        }
+      }
+    `;
+    const stream = makeReactiveQueryEffect<GetPokemonQuery>(client, query, {
+      name: "pikachu",
+    });
+
+    // Take the first emitted value from the stream
+    return stream.pipe(
+      // Stream.take(1),
+      Stream.runForEach((result) =>
+        Effect.sync(() => {
+          console.log("result", result);
+          expect(result).toBeDefined();
+          expect(result.data?.pokemon?.name).toBe("Pikachu");
         })
       )
     );
