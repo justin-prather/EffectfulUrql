@@ -14,12 +14,12 @@ import type { TypedDocumentNode as DocumentNode } from '@graphql-typed-document-
  * Learn more about it here: https://the-guild.dev/graphql/codegen/plugins/presets/preset-client#reducing-bundle-size
  */
 type Documents = {
-    "\n      query ReadPeople {\n        people {\n          id\n          name\n        }\n      }\n    ": typeof types.ReadPeopleDocument,
-    "\n      mutation InsertPerson($input: CreatePersonInput!) {\n        insertPerson(input: $input) {\n          id\n          name\n        }\n      }\n    ": typeof types.InsertPersonDocument,
+    "\n  query GetPokemon($name: String!) {\n    pokemon(name: $name) {\n      name\n      number\n      image\n      classification\n      types\n    }\n  }\n": typeof types.GetPokemonDocument,
+    "\n  query BadNetworkQuery($name: String!) {\n    pokemon(name: $name) {\n      name\n    }\n  }\n": typeof types.BadNetworkQueryDocument,
 };
 const documents: Documents = {
-    "\n      query ReadPeople {\n        people {\n          id\n          name\n        }\n      }\n    ": types.ReadPeopleDocument,
-    "\n      mutation InsertPerson($input: CreatePersonInput!) {\n        insertPerson(input: $input) {\n          id\n          name\n        }\n      }\n    ": types.InsertPersonDocument,
+    "\n  query GetPokemon($name: String!) {\n    pokemon(name: $name) {\n      name\n      number\n      image\n      classification\n      types\n    }\n  }\n": types.GetPokemonDocument,
+    "\n  query BadNetworkQuery($name: String!) {\n    pokemon(name: $name) {\n      name\n    }\n  }\n": types.BadNetworkQueryDocument,
 };
 
 /**
@@ -39,11 +39,11 @@ export function graphql(source: string): unknown;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n      query ReadPeople {\n        people {\n          id\n          name\n        }\n      }\n    "): (typeof documents)["\n      query ReadPeople {\n        people {\n          id\n          name\n        }\n      }\n    "];
+export function graphql(source: "\n  query GetPokemon($name: String!) {\n    pokemon(name: $name) {\n      name\n      number\n      image\n      classification\n      types\n    }\n  }\n"): (typeof documents)["\n  query GetPokemon($name: String!) {\n    pokemon(name: $name) {\n      name\n      number\n      image\n      classification\n      types\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n      mutation InsertPerson($input: CreatePersonInput!) {\n        insertPerson(input: $input) {\n          id\n          name\n        }\n      }\n    "): (typeof documents)["\n      mutation InsertPerson($input: CreatePersonInput!) {\n        insertPerson(input: $input) {\n          id\n          name\n        }\n      }\n    "];
+export function graphql(source: "\n  query BadNetworkQuery($name: String!) {\n    pokemon(name: $name) {\n      name\n    }\n  }\n"): (typeof documents)["\n  query BadNetworkQuery($name: String!) {\n    pokemon(name: $name) {\n      name\n    }\n  }\n"];
 
 export function graphql(source: string) {
   return (documents as any)[source] ?? {};

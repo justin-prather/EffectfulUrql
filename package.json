@@ -10,6 +10,10 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
+    },
+    "./svelte": {
+      "types": "./src/index.svelte.ts",
+      "import": "./src/index.svelte.ts"
     }
   },
   "scripts": {
@@ -34,11 +38,13 @@
   "license": "ISC",
   "peerDependencies": {
     "@urql/core": ">=6.0.1",
-    "effect": ">=3.0.0"
+    "effect": ">=3.0.0",
+    "svelte": "^5.40.1"
   },
   "devDependencies": {
     "@effect/vitest": "^0.26.0",
     "@graphql-codegen/cli": "^6.0.0",
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@vitest/coverage-v8": "^3.2.4",
     "@vitest/ui": "^3.2.4",
     "effect": "^3.10.0",

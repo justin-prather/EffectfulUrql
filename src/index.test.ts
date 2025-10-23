@@ -6,16 +6,20 @@ import {
   GraphQLError,
   makeReactiveQueryEffect,
   // QueryError,
-  // makeMutationEffect,
+  makeMutationEffect,
 } from "./index.ts";
 import { cacheExchange, Client, fetchExchange, gql } from "@urql/core";
-import { Effect, Stream } from "effect";
+import { Effect, Layer, Logger, LogLevel, Stream } from "effect";
 import {
-  BadGraphQlQueryQuery,
-  GetPokemonQuery,
-  // InsertPersonMutation,
-  // InsertPersonMutationVariables,
-} from "./generated/graphql.ts";
+  InsertPersonMutation,
+  InsertPersonMutationVariables,
+  ReadPeopleQuery,
+} from "./generated/local/graphql.ts";
+import {
+  ReadPeopleQuery as ReadPeople,
+  InsertPersonMutation as InsertPerson,
+} from "./queries/local/local-queries.ts";
+import { GetPokemonQuery } from "./generated/pokemon/graphql.ts";
 
 describe("EffectfulUrql", () => {
   let client = new Client({
@@ -63,14 +67,17 @@ describe("EffectfulUrql", () => {
 
     // Take the first emitted value from the stream
     return stream.pipe(
-      // Stream.take(1),
-      Stream.runForEach((result) =>
-        Effect.sync(() => {
-          console.log("result", result);
-          expect(result).toBeDefined();
-          expect(result.data?.pokemon?.name).toBe("Pikachu");
-        })
-      )
+      Stream.take(1),
+      Stream.runHead,
+      Effect.flatMap((result) => {
+        if (result._tag === "None") {
+          return Effect.fail(new Error("No result received"));
+        }
+        console.log("result", result.value);
+        expect(result.value).toBeDefined();
+        expect(result.value.data?.pokemon?.name).toBe("Pikachu");
+        return Effect.succeed(result.value);
+      })
     );
   });
 });
@@ -89,7 +96,7 @@ describe("Error handling", () => {
         }
       }
     `;
-    const effect = makeQueryEffect<BadGraphQlQueryQuery>(client, query, {
+    const effect = makeQueryEffect(client, query, {
       name: "pikachu",
     });
 
@@ -146,42 +153,93 @@ describe("Error handling", () => {
   );
 });
 
-// describe("Mutation", () => {
-//   let client = new Client({
-//     url: "http://localhost:4000/graphql",
-//     exchanges: [cacheExchange, fetchExchange],
-//   });
+describe("Mutation", () => {
+  let client = new Client({
+    url: "http://localhost:4000/graphql",
+    exchanges: [cacheExchange, fetchExchange],
+  });
 
-//   it.live("should make a mutation effect and return data", () => {
-//     const InsertPerson = gql`
-//       mutation InsertPerson($input: CreatePersonInput!) {
-//         insertPerson(input: $input) {
-//           id
-//           name
-//         }
-//       }
-//     `;
-//     const effect = makeMutationEffect<
-//       InsertPersonMutation,
-//       InsertPersonMutationVariables
-//     >(client, InsertPerson, {
-//       input: {
-//         name: "John Doe",
-//         federations: {},
-//       },
-//     });
+  it.live("should make a mutation effect and return data", () => {
+    const reactiveEffect = makeReactiveQueryEffect<ReadPeopleQuery>(
+      client,
+      ReadPeople
+    );
 
-//     return effect.pipe(
-//       Effect.withLogSpan("insertPerson"),
-//       Effect.tap((result) =>
-//         Effect.sync(() => {
-//           expect(result).toBeDefined();
-//           expect(result.insertPerson?.name).toBe("John Doe");
-//         })
-//       ),
-//       Effect.provide(
-//         Layer.merge(Logger.pretty, Logger.minimumLogLevel(LogLevel.All))
-//       )
-//     );
-//   });
-// });
+    const effect = makeMutationEffect<
+      InsertPersonMutation,
+      InsertPersonMutationVariables
+    >(client, InsertPerson, {
+      input: {
+        name: "John Doe",
+        federations: {},
+      },
+    });
+
+    return Effect.gen(function* () {
+      // Track the initial count
+      let initialCount: number | undefined;
+      let finalCount: number | undefined;
+
+      // Fork the reactive effect to run in parallel
+      const streamFiber = yield* Effect.fork(
+        reactiveEffect.pipe(
+          Stream.runForEach((result) =>
+            Effect.sync(() => {
+              const count = result.data?.people?.length;
+              console.log(
+                "Num People:",
+                count,
+                "hasNext:",
+                result.hasNext,
+                "stale:",
+                result.stale
+              );
+
+              // Capture the initial count (first non-stale result)
+              if (initialCount === undefined && !result.stale) {
+                initialCount = count;
+              }
+
+              // Capture the final count (last non-stale result)
+              if (!result.stale) {
+                finalCount = count;
+              }
+            })
+          )
+        )
+      );
+
+      // Wait a bit for the first result
+      yield* Effect.sleep("100 millis");
+
+      // Run the mutation
+      const mutationResult = yield* effect;
+
+      // Give some time for the cache update to propagate
+      yield* Effect.sleep("500 millis");
+
+      // Verify the count increased by 1
+      if (initialCount !== undefined && finalCount !== undefined) {
+        expect(finalCount).toBe(initialCount + 1);
+        console.log(
+          `✅ Count increased from ${initialCount} to ${finalCount} (+1)`
+        );
+      } else {
+        throw new Error("Failed to capture initial or final count");
+      }
+
+      return mutationResult;
+    }).pipe(
+      Effect.withLogSpan("insertPerson"),
+      Effect.tap((result) =>
+        Effect.sync(() => {
+          expect(result).toBeDefined();
+          expect(result.data?.insertPerson?.name).toBe("John Doe");
+        })
+      ),
+      Effect.provide(
+        Layer.merge(Logger.pretty, Logger.minimumLogLevel(LogLevel.All))
+      )
+    );
+  });
+});
