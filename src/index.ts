@@ -246,3 +246,62 @@ export const makeMutationEffect = <
     return result;
   }).pipe(Effect.flatMap(mapErrors));
 };
+
+/**
+ * Creates a Stream that emits GraphQL mutation results reactively.
+ * This will emit new values whenever the mutation is executed.
+ *
+ * @param client - The urql Client instance
+ * @param mutation - The TypedDocumentNode representing the GraphQL mutation
+ * @param variables - Optional variables for the mutation
+ * @returns A Stream that emits mutation result data when executed
+ *
+ * @example
+ * ```ts
+ * const client = new Client({ url: 'https://api.example.com/graphql' });
+ * const mutation = gql`mutation { createUser(name: "John") { id name } }`;
+ *
+ * const stream = makeReactiveMutationEffect(client, mutation);
+ *
+ * // Process each update
+ * await stream.pipe(
+ *   Stream.runForEach((data) => Effect.sync(() => console.log(data)))
+ * ).pipe(Effect.runPromise);
+ * ```
+ *
+ * Possible errors:
+ * - NetworkError: Network-level failures (connection, timeout, etc.)
+ * - GraphQLError: GraphQL errors returned by the server
+ * - QueryError: Other mutation-related errors
+ */
+export const makeReactiveMutationEffect = <
+  Data = any,
+  Variables extends AnyVariables = AnyVariables
+>(
+  client: Client,
+  mutation: TypedDocumentNode<Data, Variables>,
+  variables?: Variables
+) => {
+  return Stream.async<
+    OperationResult<Data, Variables>,
+    NetworkError | GraphQLError | QueryError
+  >((emit) => {
+    const internalMutation = client.mutation(mutation, variables as Variables);
+
+    const subscription = internalMutation.subscribe((result) => {
+      mapErrors(result).pipe(
+        Effect.match({
+          onFailure: (error) => emit.fail(error),
+          onSuccess: (data) => emit.single(data),
+        }),
+        Effect.runPromise
+      );
+    });
+
+    // Return cleanup function that will be called when stream ends
+    return Effect.sync(() => {
+      console.log("unsubscribing from mutation");
+      subscription.unsubscribe();
+    });
+  });
+};

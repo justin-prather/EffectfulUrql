@@ -7,6 +7,7 @@ import {
   makeReactiveQueryEffect,
   // QueryError,
   makeMutationEffect,
+  makeReactiveMutationEffect,
 } from "./index.ts";
 import { cacheExchange, Client, fetchExchange, gql } from "@urql/core";
 import { Effect, Layer, Logger, LogLevel, Stream } from "effect";
@@ -76,6 +77,39 @@ describe("EffectfulUrql", () => {
         console.log("result", result.value);
         expect(result.value).toBeDefined();
         expect(result.value.data?.pokemon?.name).toBe("Pikachu");
+        return Effect.succeed(result.value);
+      })
+    );
+  });
+
+  it.live("should make a reactive mutation effect and return data", () => {
+    // Use the local server for mutations
+    const mutationClient = new Client({
+      url: "http://localhost:4000/graphql",
+      exchanges: [cacheExchange, fetchExchange],
+    });
+
+    const stream = makeReactiveMutationEffect<
+      InsertPersonMutation,
+      InsertPersonMutationVariables
+    >(mutationClient, InsertPerson, {
+      input: {
+        name: "Test Person",
+        federations: {},
+      },
+    });
+
+    // Take the first emitted value from the stream
+    return stream.pipe(
+      Stream.take(1),
+      Stream.runHead,
+      Effect.flatMap((result) => {
+        if (result._tag === "None") {
+          return Effect.fail(new Error("No result received"));
+        }
+        console.log("mutation result", result.value);
+        expect(result.value).toBeDefined();
+        expect(result.value.data?.insertPerson?.name).toBe("Test Person");
         return Effect.succeed(result.value);
       })
     );
