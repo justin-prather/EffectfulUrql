@@ -33,6 +33,14 @@ export const makeQueryRune = <
       data = result.data ?? null;
       stale = result.stale;
       return Effect.void;
+    }),
+    Effect.catchAll((streamError) => {
+      // Handle Effect.fail cases from the stream
+      loading = false;
+      error = streamError;
+      data = null;
+      stale = false;
+      return Effect.void;
     })
   );
 
@@ -102,6 +110,13 @@ export const makeMutationRune = <
         loading = false;
         error = result.error ? result.error : null;
         data = result.data ?? null;
+        return Effect.void;
+      }),
+      Effect.catchAll((streamError) => {
+        // Handle Effect.fail cases from the stream
+        loading = false;
+        error = streamError;
+        data = null;
         return Effect.void;
       })
     );

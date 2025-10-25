@@ -123,4 +123,46 @@ describe("Svelte Runes", () => {
 
     rune.cleanup();
   });
+
+  it("should handle errors correctly in makeQueryRune", async () => {
+    // Create a client pointing to an invalid URL to simulate network failure
+    const networkFailureClient = new Client({
+      url: "http://localhost:9999/graphql-will-fail",
+      exchanges: [fetchExchange],
+    });
+
+    const query = gql`
+      query BadNetworkQuery($name: String!) {
+        pokemon(name: $name) {
+          name
+        }
+      }
+    `;
+
+    const rune = makeQueryRune(networkFailureClient, query, {
+      name: "pikachu",
+    });
+
+    expect(rune).toBeDefined();
+    expect(rune.loading).toBe(true);
+    expect(rune.error).toBe(null);
+
+    // Wait for the error to be handled
+    await new Promise<void>((resolve) => {
+      const checkError = () => {
+        if (!rune.loading && rune.error) {
+          resolve();
+        } else {
+          setTimeout(checkError, 10);
+        }
+      };
+      checkError();
+    });
+
+    expect(rune.loading).toBe(false);
+    expect(rune.error).toBeDefined();
+    expect(rune.data).toBe(null);
+
+    rune.cleanup();
+  });
 });
