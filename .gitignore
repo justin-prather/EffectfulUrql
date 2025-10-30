@@ -50,3 +50,9 @@ coverage/
 tmp/
 temp/
 
+# Generated local files
+src/generated/local/
+
+# Local server test files
+src/index.mutations.test.ts
+src/svelte.mutations.test.ts
