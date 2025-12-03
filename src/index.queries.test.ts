@@ -5,13 +5,14 @@ import {
   NetworkError,
   GraphQLError,
   makeReactiveQueryEffect,
+  makeUrqlClientLayer,
 } from "./index.ts";
 import { cacheExchange, Client, fetchExchange, gql } from "@urql/core";
 import { Effect, Stream } from "effect";
 import { GetPokemonQuery } from "./generated/pokemon/graphql.ts";
 
 describe("EffectfulUrql", () => {
-  let client = new Client({
+  const clientLayer = makeUrqlClientLayer({
     url: "https://graphql-pokemon2.vercel.app/",
     exchanges: [cacheExchange, fetchExchange],
   });
@@ -24,7 +25,7 @@ describe("EffectfulUrql", () => {
         }
       }
     `;
-    const effect = makeQueryEffect<GetPokemonQuery>(client, query, {
+    const effect = makeQueryEffect<GetPokemonQuery>(query, {
       name: "pikachu",
     });
 
@@ -34,7 +35,8 @@ describe("EffectfulUrql", () => {
           expect(result).toBeDefined();
           expect(result.pokemon?.name).toBe("Pikachu");
         })
-      )
+      ),
+      Effect.provide(clientLayer)
     );
   });
 
@@ -50,7 +52,7 @@ describe("EffectfulUrql", () => {
         }
       }
     `;
-    const stream = makeReactiveQueryEffect<GetPokemonQuery>(client, query, {
+    const stream = makeReactiveQueryEffect<GetPokemonQuery>(query, {
       name: "pikachu",
     });
 
@@ -66,13 +68,14 @@ describe("EffectfulUrql", () => {
         expect(result.value).toBeDefined();
         expect(result.value.data?.pokemon?.name).toBe("Pikachu");
         return Effect.succeed(result.value);
-      })
+      }),
+      Effect.provide(clientLayer)
     );
   });
 });
 
 describe("Error handling", () => {
-  let client = new Client({
+  const clientLayer = makeUrqlClientLayer({
     url: "https://graphql-pokemon2.vercel.app/",
     exchanges: [cacheExchange, fetchExchange],
   });
@@ -85,7 +88,7 @@ describe("Error handling", () => {
         }
       }
     `;
-    const effect = makeQueryEffect(client, query, {
+    const effect = makeQueryEffect(query, {
       name: "pikachu",
     });
 
@@ -100,7 +103,8 @@ describe("Error handling", () => {
         Effect.sync(() => {
           expect(result).toBeInstanceOf(GraphQLError);
         })
-      )
+      ),
+      Effect.provide(clientLayer)
     );
   });
 
@@ -108,7 +112,7 @@ describe("Error handling", () => {
     "should return a NetworkError when there is a network failure",
     () => {
       // Create a client pointing to an invalid/unreachable URL to simulate network failure
-      const networkFailureClient = new Client({
+      const networkFailureClientLayer = makeUrqlClientLayer({
         url: "http://localhost:9999/graphql-will-fail",
         exchanges: [fetchExchange],
       });
@@ -120,7 +124,7 @@ describe("Error handling", () => {
           }
         }
       `;
-      const effect = makeQueryEffect(networkFailureClient, query, {
+      const effect = makeQueryEffect(query, {
         name: "pikachu",
       });
 
@@ -136,7 +140,8 @@ describe("Error handling", () => {
             expect(result).toBeInstanceOf(NetworkError);
             expect(result.message).toBeDefined();
           })
-        )
+        ),
+        Effect.provide(networkFailureClientLayer)
       );
     }
   );

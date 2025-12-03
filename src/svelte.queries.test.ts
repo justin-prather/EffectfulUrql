@@ -1,17 +1,17 @@
 import { describe, expect } from "vitest";
 import { it } from "@effect/vitest";
 import { makeQueryRune } from "./index.svelte.ts";
-import { cacheExchange, Client, fetchExchange, gql } from "@urql/core";
+import { cacheExchange, fetchExchange, gql } from "@urql/core";
 import {
   GetPokemonQuery,
   GetPokemonQueryVariables,
 } from "./generated/local/graphql.ts";
 
 describe("Svelte Runes", () => {
-  let client = new Client({
+  const clientOptions = {
     url: "https://graphql-pokemon2.vercel.app/",
     exchanges: [cacheExchange, fetchExchange],
-  });
+  };
 
   it("should have the correct function signature and return structure", async () => {
     const query = gql`
@@ -23,7 +23,7 @@ describe("Svelte Runes", () => {
     `;
 
     const rune = makeQueryRune<GetPokemonQuery, GetPokemonQueryVariables>(
-      client,
+      clientOptions,
       query,
       { name: "pikachu" }
     );
@@ -64,10 +64,10 @@ describe("Svelte Runes", () => {
 
   it("should handle errors correctly in makeQueryRune", async () => {
     // Create a client pointing to an invalid URL to simulate network failure
-    const networkFailureClient = new Client({
+    const networkFailureClientOptions = {
       url: "http://localhost:9999/graphql-will-fail",
       exchanges: [fetchExchange],
-    });
+    };
 
     const query = gql`
       query BadNetworkQuery($name: String!) {
@@ -77,7 +77,7 @@ describe("Svelte Runes", () => {
       }
     `;
 
-    const rune = makeQueryRune(networkFailureClient, query, {
+    const rune = makeQueryRune(networkFailureClientOptions, query, {
       name: "pikachu",
     });
 

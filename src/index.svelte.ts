@@ -1,8 +1,13 @@
-import { Stream, Effect, Fiber } from "effect/index";
-import { makeReactiveQueryEffect, makeReactiveMutationEffect } from "./index";
+import { Stream, Effect, Fiber, Layer } from "effect/index";
+import {
+  makeReactiveQueryEffect,
+  makeReactiveMutationEffect,
+  makeUrqlClientLayer,
+  UrqlClientService,
+} from "./index";
 import {
   AnyVariables,
-  Client,
+  ClientOptions,
   OperationResult,
   TypedDocumentNode,
 } from "@urql/core";
@@ -11,7 +16,7 @@ export const makeQueryRune = <
   Data = any,
   Variables extends AnyVariables = AnyVariables
 >(
-  client: Client,
+  clientOptions: ClientOptions,
   query: TypedDocumentNode<Data, Variables>,
   variables?: Variables
 ) => {
@@ -22,7 +27,8 @@ export const makeQueryRune = <
   let stale = $state(false);
   let fiber: Fiber.RuntimeFiber<any, any> | null = null;
 
-  const stream = makeReactiveQueryEffect(client, query, variables);
+  const clientLayer = makeUrqlClientLayer(clientOptions);
+  const stream = makeReactiveQueryEffect(query, variables);
 
   // Run the stream effect to update state
   const effect = stream.pipe(
@@ -41,7 +47,8 @@ export const makeQueryRune = <
       data = null;
       stale = false;
       return Effect.void;
-    })
+    }),
+    Effect.provide(clientLayer)
   );
 
   // Run the effect and store the fiber
@@ -79,7 +86,7 @@ export const makeMutationRune = <
   Data = any,
   Variables extends AnyVariables = AnyVariables
 >(
-  client: Client,
+  clientOptions: ClientOptions,
   mutation: TypedDocumentNode<Data, Variables>,
   variables?: Variables
 ) => {
@@ -88,6 +95,8 @@ export const makeMutationRune = <
   let data = $state<Data | null>(null);
   let operationResult = $state<OperationResult<Data, Variables> | null>(null);
   let fiber: Fiber.RuntimeFiber<any, any> | null = null;
+
+  const clientLayer = makeUrqlClientLayer(clientOptions);
 
   // Function to execute the mutation
   const execute = () => {
@@ -100,7 +109,7 @@ export const makeMutationRune = <
     operationResult = null;
 
     // Create a new stream for each execution
-    const stream = makeReactiveMutationEffect(client, mutation, variables);
+    const stream = makeReactiveMutationEffect(mutation, variables);
 
     // Run the stream effect to update state
     const effect = stream.pipe(
@@ -118,7 +127,8 @@ export const makeMutationRune = <
         error = streamError;
         data = null;
         return Effect.void;
-      })
+      }),
+      Effect.provide(clientLayer)
     );
 
     fiber = Effect.runFork(effect);

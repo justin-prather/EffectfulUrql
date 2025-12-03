@@ -1,10 +1,41 @@
 import type {
   AnyVariables,
+  ClientOptions,
   OperationResult,
   TypedDocumentNode,
 } from "@urql/core";
 import { Client, CombinedError } from "@urql/core";
-import { Data, Effect, Stream } from "effect";
+import { Context, Data, Effect, Layer, Stream } from "effect";
+
+interface UrqlClientServiceType {
+  readonly client: Client;
+}
+
+export class UrqlClientService extends Context.Tag("UrqlClientService")<
+  UrqlClientService,
+  UrqlClientServiceType
+>() {}
+
+export const makeUrqlClientService = (
+  config: ClientOptions | Client,
+): UrqlClientServiceType => {
+  let client;
+  if (config instanceof Client) {
+    client = config;
+  } else {
+    client = new Client(config);
+  }
+
+  return {
+    client,
+  };
+};
+
+export const makeUrqlClientLayer = (
+  config: ClientOptions | Client,
+): Layer.Layer<UrqlClientService> => {
+  return Layer.succeed(UrqlClientService, makeUrqlClientService(config));
+};
 
 /**
  * Represents a network-level error that occurred during a GraphQL request.
@@ -43,7 +74,7 @@ export class QueryError extends Data.TaggedError("QueryError")<{
 }> {}
 
 const mapErrors = <Data = any, Variables extends AnyVariables = AnyVariables>(
-  result: OperationResult<Data, Variables>
+  result: OperationResult<Data, Variables>,
 ) => {
   return Effect.gen(function* () {
     if (result.error) {
@@ -57,7 +88,7 @@ const mapErrors = <Data = any, Variables extends AnyVariables = AnyVariables>(
               combinedError.networkError.message || "Network error occurred",
             originalError: combinedError.networkError,
             response: combinedError.response,
-          })
+          }),
         );
       }
 
@@ -77,7 +108,7 @@ const mapErrors = <Data = any, Variables extends AnyVariables = AnyVariables>(
           new GraphQLError({
             message: combinedError.message,
             graphQLErrors,
-          })
+          }),
         );
       }
 
@@ -86,7 +117,7 @@ const mapErrors = <Data = any, Variables extends AnyVariables = AnyVariables>(
         new QueryError({
           message: combinedError.message,
           combinedError,
-        })
+        }),
       );
     }
 
@@ -98,148 +129,81 @@ const mapErrors = <Data = any, Variables extends AnyVariables = AnyVariables>(
             graphQLErrors: [],
             response: result.operation.context.response,
           }),
-        })
+        }),
       );
     }
     return result;
   });
 };
 
-/**
- * Creates an Effect that executes a GraphQL query using the provided urql client.
- *
- * @param client - The urql Client instance
- * @param query - The TypedDocumentNode representing the GraphQL query
- * @param variables - Optional variables for the query
- * @returns An Effect that yields the query result data or fails with a tagged error
- *
- * @example
- * ```ts
- * const client = new Client({ url: 'https://api.example.com/graphql' });
- * const query = gql`query { user { id name } }`;
- *
- * const effect = makeQueryEffect(client, query);
- * const result = await Effect.runPromise(effect);
- * ```
- *
- * Possible errors:
- * - NetworkError: Network-level failures (connection, timeout, etc.)
- * - GraphQLError: GraphQL errors returned by the server
- * - QueryError: Other query-related errors
- */
 export const makeQueryEffect = <
   Data = any,
-  Variables extends AnyVariables = AnyVariables
+  Variables extends AnyVariables = AnyVariables,
 >(
-  client: Client,
   query: TypedDocumentNode<Data, Variables>,
-  variables?: Variables
+  variables?: Variables,
 ) => {
   return Effect.gen(function* () {
+    const { client } = yield* UrqlClientService;
     const internalQuery = Effect.promise(() =>
-      client.query(query, variables as Variables)
+      client.query(query, variables as Variables),
     );
     const result = yield* internalQuery;
 
     return result;
   }).pipe(
     Effect.flatMap(mapErrors),
-    Effect.map((result) => result.data as NonNullable<typeof result.data>)
+    Effect.map((result) => result.data as NonNullable<typeof result.data>),
   );
 };
 
-/**
- * Creates a Stream that emits GraphQL query results reactively.
- * This will emit new values whenever the urql cache updates for this query.
- *
- * @param client - The urql Client instance
- * @param query - The TypedDocumentNode representing the GraphQL query
- * @param variables - Optional variables for the query
- * @returns A Stream that emits query result data whenever the cache updates
- *
- * @example
- * ```ts
- * const client = new Client({ url: 'https://api.example.com/graphql' });
- * const query = gql`query { user { id name } }`;
- *
- * const stream = makeReactiveQueryEffect(client, query);
- *
- * // Process each update
- * await stream.pipe(
- *   Stream.runForEach((data) => Effect.sync(() => console.log(data)))
- * ).pipe(Effect.runPromise);
- * ```
- *
- * Possible errors:
- * - NetworkError: Network-level failures (connection, timeout, etc.)
- * - GraphQLError: GraphQL errors returned by the server
- * - QueryError: Other query-related errors
- */
 export const makeReactiveQueryEffect = <
   Data = any,
-  Variables extends AnyVariables = AnyVariables
+  Variables extends AnyVariables = AnyVariables,
 >(
-  client: Client,
   query: TypedDocumentNode<Data, Variables>,
-  variables?: Variables
+  variables?: Variables,
 ) => {
-  return Stream.async<
-    OperationResult<Data, Variables>,
-    NetworkError | GraphQLError | QueryError
-  >((emit) => {
-    const internalQuery = client.query(query, variables as Variables);
+  return Stream.unwrap(
+    Effect.gen(function* () {
+      const { client } = yield* UrqlClientService;
+      return Stream.async<
+        OperationResult<Data, Variables>,
+        NetworkError | GraphQLError | QueryError
+      >((emit) => {
+        const internalQuery = client.query(query, variables as Variables);
 
-    const subscription = internalQuery.subscribe((result) => {
-      mapErrors(result).pipe(
-        Effect.match({
-          onFailure: (error) => emit.fail(error),
-          onSuccess: (data) => emit.single(data),
-        }),
-        Effect.runPromise
-      );
-    });
+        const subscription = internalQuery.subscribe((result) => {
+          mapErrors(result).pipe(
+            Effect.match({
+              onFailure: (error) => emit.fail(error),
+              onSuccess: (data) => emit.single(data),
+            }),
+            Effect.runPromise,
+          );
+        });
 
-    // Return cleanup function that will be called when stream ends
-    return Effect.sync(() => {
-      console.log("unsubscribing from query");
-      subscription.unsubscribe();
-    });
-  });
+        // Return cleanup function that will be called when stream ends
+        return Effect.sync(() => {
+          console.log("unsubscribing from query");
+          subscription.unsubscribe();
+        });
+      });
+    }),
+  );
 };
 
-/**
- * Creates an Effect that executes a GraphQL mutation using the provided urql client.
- *
- * @param client - The urql Client instance
- * @param mutation - The TypedDocumentNode representing the GraphQL mutation
- * @param variables - Optional variables for the mutation
- * @returns An Effect that yields the mutation result data or fails with a tagged error
- *
- * @example
- * ```ts
- * const client = new Client({ url: 'https://api.example.com/graphql' });
- * const mutation = gql`mutation { createUser(name: "John") { id name } }`;
- *
- * const effect = makeMutationEffect(client, mutation);
- * const result = await Effect.runPromise(effect);
- * ```
- *
- * Possible errors:
- * - NetworkError: Network-level failures (connection, timeout, etc.)
- * - GraphQLError: GraphQL errors returned by the server
- * - QueryError: Other mutation-related errors
- */
 export const makeMutationEffect = <
   Data = any,
-  Variables extends AnyVariables = AnyVariables
+  Variables extends AnyVariables = AnyVariables,
 >(
-  client: Client,
   mutation: TypedDocumentNode<Data, Variables>,
-  variables?: Variables
+  variables?: Variables,
 ) => {
   return Effect.gen(function* () {
+    const { client } = yield* UrqlClientService;
     const internalMutation = Effect.promise(() =>
-      client.mutation(mutation, variables as Variables)
+      client.mutation(mutation, variables as Variables),
     );
     const result = yield* internalMutation;
 
@@ -247,61 +211,41 @@ export const makeMutationEffect = <
   }).pipe(Effect.flatMap(mapErrors));
 };
 
-/**
- * Creates a Stream that emits GraphQL mutation results reactively.
- * This will emit new values whenever the mutation is executed.
- *
- * @param client - The urql Client instance
- * @param mutation - The TypedDocumentNode representing the GraphQL mutation
- * @param variables - Optional variables for the mutation
- * @returns A Stream that emits mutation result data when executed
- *
- * @example
- * ```ts
- * const client = new Client({ url: 'https://api.example.com/graphql' });
- * const mutation = gql`mutation { createUser(name: "John") { id name } }`;
- *
- * const stream = makeReactiveMutationEffect(client, mutation);
- *
- * // Process each update
- * await stream.pipe(
- *   Stream.runForEach((data) => Effect.sync(() => console.log(data)))
- * ).pipe(Effect.runPromise);
- * ```
- *
- * Possible errors:
- * - NetworkError: Network-level failures (connection, timeout, etc.)
- * - GraphQLError: GraphQL errors returned by the server
- * - QueryError: Other mutation-related errors
- */
 export const makeReactiveMutationEffect = <
   Data = any,
-  Variables extends AnyVariables = AnyVariables
+  Variables extends AnyVariables = AnyVariables,
 >(
-  client: Client,
   mutation: TypedDocumentNode<Data, Variables>,
-  variables?: Variables
+  variables?: Variables,
 ) => {
-  return Stream.async<
-    OperationResult<Data, Variables>,
-    NetworkError | GraphQLError | QueryError
-  >((emit) => {
-    const internalMutation = client.mutation(mutation, variables as Variables);
+  return Stream.unwrap(
+    Effect.gen(function* () {
+      const { client } = yield* UrqlClientService;
+      return Stream.async<
+        OperationResult<Data, Variables>,
+        NetworkError | GraphQLError | QueryError
+      >((emit) => {
+        const internalMutation = client.mutation(
+          mutation,
+          variables as Variables,
+        );
 
-    const subscription = internalMutation.subscribe((result) => {
-      mapErrors(result).pipe(
-        Effect.match({
-          onFailure: (error) => emit.fail(error),
-          onSuccess: (data) => emit.single(data),
-        }),
-        Effect.runPromise
-      );
-    });
+        const subscription = internalMutation.subscribe((result) => {
+          mapErrors(result).pipe(
+            Effect.match({
+              onFailure: (error) => emit.fail(error),
+              onSuccess: (data) => emit.single(data),
+            }),
+            Effect.runPromise,
+          );
+        });
 
-    // Return cleanup function that will be called when stream ends
-    return Effect.sync(() => {
-      console.log("unsubscribing from mutation");
-      subscription.unsubscribe();
-    });
-  });
+        // Return cleanup function that will be called when stream ends
+        return Effect.sync(() => {
+          console.log("unsubscribing from mutation");
+          subscription.unsubscribe();
+        });
+      });
+    }),
+  );
 };
