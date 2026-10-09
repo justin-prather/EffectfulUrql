@@ -1,9 +1,8 @@
-import { Stream, Effect, Fiber, Layer } from "effect/index";
+import { Stream, Effect, Fiber } from "effect";
 import {
   makeReactiveQueryEffect,
   makeReactiveMutationEffect,
   makeUrqlClientLayer,
-  UrqlClientService,
 } from "./index";
 import {
   AnyVariables,
@@ -25,7 +24,7 @@ export const makeQueryRune = <
   let data = $state<Data | null>(null);
   let operationResult = $state<OperationResult<Data, Variables> | null>(null);
   let stale = $state(false);
-  let fiber: Fiber.RuntimeFiber<any, any> | null = null;
+  let fiber: Fiber.Fiber<any, any> | null = null;
 
   const clientLayer = makeUrqlClientLayer(clientOptions);
   const stream = makeReactiveQueryEffect(query, variables);
@@ -40,7 +39,7 @@ export const makeQueryRune = <
       stale = result.stale;
       return Effect.void;
     }),
-    Effect.catchAll((streamError) => {
+    Effect.catch((streamError) => {
       // Handle Effect.fail cases from the stream
       loading = false;
       error = streamError;
@@ -94,7 +93,7 @@ export const makeMutationRune = <
   let error = $state<Error | null>(null);
   let data = $state<Data | null>(null);
   let operationResult = $state<OperationResult<Data, Variables> | null>(null);
-  let fiber: Fiber.RuntimeFiber<any, any> | null = null;
+  let fiber: Fiber.Fiber<any, any> | null = null;
 
   const clientLayer = makeUrqlClientLayer(clientOptions);
 
@@ -121,7 +120,7 @@ export const makeMutationRune = <
         data = result.data ?? null;
         return Effect.void;
       }),
-      Effect.catchAll((streamError) => {
+      Effect.catch((streamError) => {
         // Handle Effect.fail cases from the stream
         loading = false;
         error = streamError;
