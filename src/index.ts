@@ -174,22 +174,24 @@ export const makeReactiveQueryEffect = <
         Effect.gen(function* () {
           const internalQuery = client.query(query, variables as Variables);
 
-          const subscription = internalQuery.subscribe((result) => {
-            mapErrors(result).pipe(
-              Effect.match({
-                onFailure: (error) =>
-                  Queue.failCauseUnsafe(queue, Cause.fail(error)),
-                onSuccess: (data) => Queue.offerUnsafe(queue, data),
+          yield* Effect.acquireRelease(
+            Effect.sync(() =>
+              internalQuery.subscribe((result) => {
+                mapErrors(result).pipe(
+                  Effect.match({
+                    onFailure: (error) =>
+                      Queue.failCauseUnsafe(queue, Cause.fail(error)),
+                    onSuccess: (data) => Queue.offerUnsafe(queue, data),
+                  }),
+                  Effect.runSync,
+                );
               }),
-              Effect.runSync,
-            );
-          });
-
-          yield* Effect.addFinalizer(() =>
-            Effect.sync(() => {
-              console.log("unsubscribing from query");
-              subscription.unsubscribe();
-            }),
+            ),
+            (subscription) =>
+              Effect.sync(() => {
+                console.log("unsubscribing from query");
+                subscription.unsubscribe();
+              }),
           );
         }),
       );
@@ -235,22 +237,24 @@ export const makeReactiveMutationEffect = <
             variables as Variables,
           );
 
-          const subscription = internalMutation.subscribe((result) => {
-            mapErrors(result).pipe(
-              Effect.match({
-                onFailure: (error) =>
-                  Queue.failCauseUnsafe(queue, Cause.fail(error)),
-                onSuccess: (data) => Queue.offerUnsafe(queue, data),
+          yield* Effect.acquireRelease(
+            Effect.sync(() =>
+              internalMutation.subscribe((result) => {
+                mapErrors(result).pipe(
+                  Effect.match({
+                    onFailure: (error) =>
+                      Queue.failCauseUnsafe(queue, Cause.fail(error)),
+                    onSuccess: (data) => Queue.offerUnsafe(queue, data),
+                  }),
+                  Effect.runSync,
+                );
               }),
-              Effect.runSync,
-            );
-          });
-
-          yield* Effect.addFinalizer(() =>
-            Effect.sync(() => {
-              console.log("unsubscribing from mutation");
-              subscription.unsubscribe();
-            }),
+            ),
+            (subscription) =>
+              Effect.sync(() => {
+                console.log("unsubscribing from mutation");
+                subscription.unsubscribe();
+              }),
           );
         }),
       );
