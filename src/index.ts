@@ -5,16 +5,16 @@ import type {
   TypedDocumentNode,
 } from "@urql/core";
 import { Client, CombinedError } from "@urql/core";
-import { Context, Data, Effect, Layer, Stream } from "effect";
+import { Cause, Context, Data, Effect, Layer, Queue, Stream } from "effect";
 
 interface UrqlClientServiceType {
   readonly client: Client;
 }
 
-export class UrqlClientService extends Context.Tag("UrqlClientService")<
+export class UrqlClientService extends Context.Service<
   UrqlClientService,
   UrqlClientServiceType
->() {}
+>()("UrqlClientService") {}
 
 export const makeUrqlClientService = (
   config: ClientOptions | Client,
@@ -167,28 +167,34 @@ export const makeReactiveQueryEffect = <
   return Stream.unwrap(
     Effect.gen(function* () {
       const { client } = yield* UrqlClientService;
-      return Stream.async<
+      return Stream.callback<
         OperationResult<Data, Variables>,
         NetworkError | GraphQLError | QueryError
-      >((emit) => {
-        const internalQuery = client.query(query, variables as Variables);
+      >((queue) =>
+        Effect.gen(function* () {
+          const internalQuery = client.query(query, variables as Variables);
 
-        const subscription = internalQuery.subscribe((result) => {
-          mapErrors(result).pipe(
-            Effect.match({
-              onFailure: (error) => emit.fail(error),
-              onSuccess: (data) => emit.single(data),
-            }),
-            Effect.runPromise,
+          yield* Effect.acquireRelease(
+            Effect.sync(() =>
+              internalQuery.subscribe((result) => {
+                mapErrors(result).pipe(
+                  Effect.match({
+                    onFailure: (error) =>
+                      Queue.failCauseUnsafe(queue, Cause.fail(error)),
+                    onSuccess: (data) => Queue.offerUnsafe(queue, data),
+                  }),
+                  Effect.runSync,
+                );
+              }),
+            ),
+            (subscription) =>
+              Effect.sync(() => {
+                console.log("unsubscribing from query");
+                subscription.unsubscribe();
+              }),
           );
-        });
-
-        // Return cleanup function that will be called when stream ends
-        return Effect.sync(() => {
-          console.log("unsubscribing from query");
-          subscription.unsubscribe();
-        });
-      });
+        }),
+      );
     }),
   );
 };
@@ -221,31 +227,37 @@ export const makeReactiveMutationEffect = <
   return Stream.unwrap(
     Effect.gen(function* () {
       const { client } = yield* UrqlClientService;
-      return Stream.async<
+      return Stream.callback<
         OperationResult<Data, Variables>,
         NetworkError | GraphQLError | QueryError
-      >((emit) => {
-        const internalMutation = client.mutation(
-          mutation,
-          variables as Variables,
-        );
-
-        const subscription = internalMutation.subscribe((result) => {
-          mapErrors(result).pipe(
-            Effect.match({
-              onFailure: (error) => emit.fail(error),
-              onSuccess: (data) => emit.single(data),
-            }),
-            Effect.runPromise,
+      >((queue) =>
+        Effect.gen(function* () {
+          const internalMutation = client.mutation(
+            mutation,
+            variables as Variables,
           );
-        });
 
-        // Return cleanup function that will be called when stream ends
-        return Effect.sync(() => {
-          console.log("unsubscribing from mutation");
-          subscription.unsubscribe();
-        });
-      });
+          yield* Effect.acquireRelease(
+            Effect.sync(() =>
+              internalMutation.subscribe((result) => {
+                mapErrors(result).pipe(
+                  Effect.match({
+                    onFailure: (error) =>
+                      Queue.failCauseUnsafe(queue, Cause.fail(error)),
+                    onSuccess: (data) => Queue.offerUnsafe(queue, data),
+                  }),
+                  Effect.runSync,
+                );
+              }),
+            ),
+            (subscription) =>
+              Effect.sync(() => {
+                console.log("unsubscribing from mutation");
+                subscription.unsubscribe();
+              }),
+          );
+        }),
+      );
     }),
   );
 };
